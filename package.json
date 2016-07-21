@@ -4,7 +4,8 @@
   "description": "",
   "main": "slack_bot.js",
   "dependencies": {
-    "botkit": "^0.2.2"
+    "botkit": "^0.2.2",
+    "moviedb": "^0.2.4"
   },
   "devDependencies": {},
   "scripts": {

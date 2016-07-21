@@ -27,40 +27,6 @@ This bot demonstrates many of the core features of Botkit:
 
     token=<MY TOKEN> node slack_bot.js
 
-# USE THE BOT:
-
-  Find your bot inside Slack to send it a direct message.
-
-  Say: "Hello"
-
-  The bot will reply "Hello!"
-
-  Say: "who are you?"
-
-  The bot will tell you its name, where it is running, and for how long.
-
-  Say: "Call me <nickname>"
-
-  Tell the bot your nickname. Now you are friends.
-
-  Say: "who am I?"
-
-  The bot will tell you your nickname, if it knows one for you.
-
-  Say: "shutdown"
-
-  The bot will ask if you are sure, and then shut itself down.
-
-  Make sure to invite your bot into other channels using /invite @<my bot>!
-
-# EXTEND THE BOT:
-
-  Botkit has many features for building cool and useful bots!
-
-  Read all about it here:
-
-    -> http://howdy.ai/botkit
-
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 
@@ -69,7 +35,7 @@ if (!process.env.token) {
     process.exit(1);
 }
 
-var Botkit = require('botkit);
+var Botkit = require('botkit');
 var os = require('os');
 var http = require('http');
 
