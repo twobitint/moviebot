@@ -52,7 +52,7 @@ moviedb('/configuration', {}, function (res) {
 });
 
 var controller = Botkit.slackbot({
-    debug: true
+    debug: process.env.DEBUG
 });
 
 var bot = controller.spawn({
@@ -73,10 +73,30 @@ controller.on('slash_command', function (bot, message) {
         case '/actor':
             actorCommand(bot, message);
             break;
+        case '/tv':
+            tvCommand(bot, message);
+            break;
         default:
             bot.replyPrivate(message, 'Your command is not allowed');
     }
 });
+
+function tvCommand(bot, message) {
+    if (message.token == process.env.SLACK_TV_CMD_TOKEN) {
+        var params = message.text.split(',');
+        var options = {query: params[0]};
+        if (params.length > 1) {
+            options.first_air_date_year = params[1];
+        }
+        moviedb('/search/tv', options, function (res) {
+            if (res.results.length != 0) {
+                replyTV(bot, message, res.results[0]);
+            } else {
+                bot.replyPrivate(message, 'No results found for “'+message.text+'”.');
+            }
+        });
+    }
+}
 
 function actorCommand(bot, message) {
     if (message.token == process.env.SLACK_ACTOR_CMD_TOKEN) {
@@ -159,12 +179,7 @@ function replyActor(bot, message, actor) {
                                 return cur.original_title + ' (' + year + ')  _' + cur.vote_average + '/10_';
                             }).join('\n'),
                             short: false
-                        },
-                        // {
-                        //     title: 'TMDB Rating',
-                        //     value: info.vote_average + '/10 (' + info.vote_count + ')',
-                        //     short: true
-                        // }
+                        }
                     ]
                 }
             ]
@@ -198,6 +213,56 @@ function replyMovie(bot, message, movie) {
                             {
                                 title: 'Runtime',
                                 value: (info.runtime) + ' min',
+                                short: true
+                            },
+                            {
+                                title: 'Cast',
+                                value: credits.cast.slice(0, 4).map(function (cur) {
+                                    return cur.name;
+                                }).join(', '),
+                                short: true
+                            },
+                            {
+                                title: 'TMDB Rating',
+                                value: info.vote_average + '/10 (' + info.vote_count + ')',
+                                short: true
+                            }
+                        ]
+                    }
+                ]
+            });
+        });
+    });
+}
+
+function replyTV(bot, message, tv) {
+    moviedb('/tv/'+tv.id, {}, function (info) {
+        moviedb('/tv/'+tv.id+'/credits', {}, function (credits) {
+            var startYear = info.first_air_date.substring(0, 4);
+            var endYear = info.last_air_date.substring(0, 4);
+            var years = startYear == endYear ? (startYear) : startYear + ' - ' + endYear;
+            var thumb = configuration.images.base_url
+                + configuration.images.poster_sizes[0]
+                + info.poster_path;
+            var aired = moment(info.first_air_date).format('dddd, MMMM Do YYYY');
+            var season = info.number_of_seasons == 1 ? 'season' : 'seasons';
+            bot.replyPublic(message, {
+                text: 'This is what I found for “' + message.text + '”',
+                attachments: [
+                    {
+                        title: info.original_name + ' (' + years + ')',
+                        title_link: info.homepage,
+                        thumb_url: thumb,
+                        text: info.overview,
+                        fields: [
+                            {
+                                title: 'First Aired',
+                                value: aired,
+                                short: true
+                            },
+                            {
+                                title: 'Episodes',
+                                value: info.number_of_episodes + ' (' + info.number_of_seasons + ' ' + season + ')',
                                 short: true
                             },
                             {
