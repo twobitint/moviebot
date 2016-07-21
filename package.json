@@ -5,7 +5,9 @@
   "main": "slack_bot.js",
   "dependencies": {
     "botkit": "^0.2.2",
-    "moviedb": "^0.2.4"
+    "dateformat": "^1.0.12",
+    "dotenv": "^2.0.0",
+    "request": "^2.73.0"
   },
   "devDependencies": {},
   "scripts": {
