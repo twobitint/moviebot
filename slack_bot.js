@@ -31,12 +31,12 @@ This bot demonstrates many of the core features of Botkit:
 
 require('dotenv').config();
 
-if (!process.env.SLACK_TOKEN) {
+if (!process.env.SLACK_BOT_WEBHOOK) {
     console.log('Error: Specify slack token in .env file');
     process.exit(1);
 }
 
-if (!process.env.MOVIEDB_API_KEY) {
+if (!process.env.TMDB_API_KEY) {
     console.log('Error: Specify moviedb api key in .env file');
     process.exit(1);
 }
@@ -44,7 +44,7 @@ if (!process.env.MOVIEDB_API_KEY) {
 var Botkit = require('botkit');
 var os = require('os');
 var request = require('request');
-var dateFormat = require('dateFormat');
+var moment = require('moment');
 
 var configuration = null;
 moviedb('/configuration', {}, function (res) {
@@ -56,22 +56,61 @@ var controller = Botkit.slackbot({
 });
 
 var bot = controller.spawn({
-    token: process.env.SLACK_TOKEN
+    token: process.env.SLACK_BOT_WEBHOOK
 }).startRTM();
 
-controller.hears(['[“"](.*?)[”"]'], 'direct_message,direct_mention,mention', function (bot, message) {
-    var search = message.match[1];
-    imdb(bot, message, search);
+// Run a simple web server for slack commands
+controller.setupWebserver(process.env.SERVER_PORT, function (err, webserver) {
+    controller.createWebhookEndpoints(controller.webserver);
 });
 
-controller.hears(['(.*)'], 'direct_message,direct_mention,mention', function (bot, message) {
-    var search = message.match[1];
-    imdb(bot, message, search);
+controller.on('slash_command', function (bot, message) {
+    console.log(message);
+    switch (message.command) {
+        case '/movie':
+            movieCommand(bot, message);
+            break;
+        case '/actor':
+            actorCommand(bot, message);
+            break;
+        default:
+            bot.replyPrivate(message, 'Your command is not allowed');
+    }
 });
+
+function actorCommand(bot, message) {
+    if (message.token == process.env.SLACK_ACTOR_CMD_TOKEN) {
+        moviedb('/search/person', {query: message.text}, function (res) {
+            console.log(res);
+            if (res.results.length != 0) {
+                replyActor(bot, message, res.results[0]);
+            } else {
+                bot.replyPrivate(message, 'No results found for “'+message.text+'”.');
+            }
+        });
+    }
+}
+
+function movieCommand(bot, message) {
+    if (message.token == process.env.SLACK_MOVIE_CMD_TOKEN) {
+        var params = message.text.split(',');
+        var options = {query: params[0]};
+        if (params.length > 1) {
+            options.year = params[1];
+        }
+        moviedb('/search/movie', options, function (res) {
+            if (res.results.length != 0) {
+                replyMovie(bot, message, res.results[0]);
+            } else {
+                bot.replyPrivate(message, 'No results found for “'+message.text+'”.');
+            }
+        });
+    }
+}
 
 function moviedb(path, options, callback) {
     var api = 'https://api.themoviedb.org/3';
-    options.api_key = process.env.MOVIEDB_API_KEY;
+    options.api_key = process.env.TMDB_API_KEY;
     request({
         url: api + path,
         qs: options
@@ -82,53 +121,68 @@ function moviedb(path, options, callback) {
     });
 }
 
-function imdb(bot, message, search) {
-    // var URL = 'http://www.imdb.com/xml/find?json=1&nr=1&q='+encodeURIComponent(search);
-    // http.request(URL, function (response) {
-    //     var str = '';
-    //     response.on('data', function (chunk) {
-    //         str += chunk;
-    //     });
-    //     response.on('end', function () {
-    //         var results = JSON.parse(str);
-    //         var popular = results.title_popular[0];
-    //         var id = popular.id;
-    //         var type = id.substring(0, 2);
-    //
-    //         if (type == 'tt') {
-    //             replyMovie(bot, message, id, search);
-    //         } else if (type == 'nm') {
-    //             replyActor(bot, message, id, search);
-    //         }
-    //     });
-    // }).end();
-
-    moviedb('/search/multi', {query: search}, function (res) {
-        if (res.results.length != 0) {
-            var result = res.results[0];
-            if (result.media_type == 'movie') {
-                replyMovie(bot, message, search, result);
-            } else if (result.media_type == 'person') {
-                replyPerson(bot, message, search, result);
-            } else if (result.media_type == 'tv') {
-                //
-            }
-        }
+function replyActor(bot, message, actor) {
+    moviedb('/person/'+actor.id, {}, function (bio) {
+        var thumb = configuration.images.base_url
+            + configuration.images.profile_sizes[0]
+            + actor.profile_path;
+        var bday = moment(bio.birthday);
+        var dday = moment(bio.deathday);
+        var end = bio.deathday ? dday : moment();
+        var age = end.diff(bio.birthday, 'Y');
+        var deceasedText = bday.format('YYYY') + ' - ' + dday.format('YYYY');
+        age += bio.deathday ? (' _Deceased, ' + deceasedText + '_') : (' _Born ' + bday.format('MMM Do, YYYY') + '_');
+        var reply = {
+            text: 'This is what I found for “' + message.text + '”',
+            attachments: [
+                {
+                    mrkdwn_in: ['text', 'pretext', 'fields'],
+                    title: actor.name,
+                    title_link: bio.homepage,
+                    thumb_url: thumb,
+                    text: bio.biography,
+                    fields: [
+                        {
+                            title: 'Age',
+                            value: age,
+                            short: true
+                        },
+                        {
+                            title: 'Hometown',
+                            value: bio.place_of_birth,
+                            short: true
+                        },
+                        {
+                            title: 'Known For',
+                            value: actor.known_for.map(function (cur) {
+                                var year = moment(cur.release_date).format('YYYY');
+                                return cur.original_title + ' (' + year + ')  _' + cur.vote_average + '/10_';
+                            }).join('\n'),
+                            short: false
+                        },
+                        // {
+                        //     title: 'TMDB Rating',
+                        //     value: info.vote_average + '/10 (' + info.vote_count + ')',
+                        //     short: true
+                        // }
+                    ]
+                }
+            ]
+        };
+        bot.replyPublic(message, reply);
     });
 }
 
-function replyMovie(bot, message, search, movie) {
-
+function replyMovie(bot, message, movie) {
     moviedb('/movie/'+movie.id, {}, function (info) {
         moviedb('/movie/'+movie.id+'/credits', {}, function (credits) {
             var year = info.release_date.substring(0, 4);
             var thumb = configuration.images.base_url
                 + configuration.images.poster_sizes[0]
                 + info.poster_path;
-            var release = dateFormat(info.release_date, 'fullDate');
-            bot.reply(message, {
-                response_type: 'ephemeral',
-                text: 'This is what I found for “' + search + '”',
+            var release = moment(info.release_date).format('dddd, MMMM Do YYYY');
+            bot.replyPublic(message, {
+                text: 'This is what I found for “' + message.text + '”',
                 attachments: [
                     {
                         title: info.original_title + ' (' + year + ')',
@@ -159,104 +213,9 @@ function replyMovie(bot, message, search, movie) {
                                 short: true
                             }
                         ]
-                    },
-                    {
-                        title: 'Do you want to interact with my buttons?',
-                        callback_id: '123',
-                        attachment_type: 'default',
-                        actions: [
-                            {
-                                "name":"yes",
-                                "text": "Yes",
-                                "value": "yes",
-                                "type": "button",
-                            },
-                            {
-                                "name":"no",
-                                "text": "No",
-                                "value": "no",
-                                "type": "button",
-                            }
-                        ]
                     }
                 ]
             });
         });
     });
-
-    // http.request('http://app.imdb.com/title/maindetails?tconst='+id, function (response) {
-    //     var str = '';
-    //     response.on('data', function (chunk) {
-    //         str += chunk;
-    //     });
-    //     response.on('end', function () {
-    //         var data = JSON.parse(str).data;
-    //
-    //         var thumb = data.image.url.replace('.jpg', 'UX182_CR0,0,75,75.jpg');
-    //
-    //
-    //     });
-    // }).end();
-}
-
-function replyPerson(bot, message, search, person) {
-
-}
-
-controller.hears(['shutdown'], 'direct_message,direct_mention,mention', function(bot, message) {
-
-    bot.startConversation(message, function(err, convo) {
-
-        convo.ask('Are you sure you want me to shutdown?', [
-            {
-                pattern: bot.utterances.yes,
-                callback: function(response, convo) {
-                    convo.say('Bye!');
-                    convo.next();
-                    setTimeout(function() {
-                        process.exit();
-                    }, 3000);
-                }
-            },
-        {
-            pattern: bot.utterances.no,
-            default: true,
-            callback: function(response, convo) {
-                convo.say('*Phew!*');
-                convo.next();
-            }
-        }
-        ]);
-    });
-});
-
-
-controller.hears(['uptime', 'identify yourself', 'who are you', 'what is your name'],
-    'direct_message,direct_mention,mention', function(bot, message) {
-
-        var hostname = os.hostname();
-        var uptime = formatUptime(process.uptime());
-
-        bot.reply(message,
-            ':robot_face: I am a bot named <@' + bot.identity.name +
-             '>. I have been running for ' + uptime + ' on ' + hostname + '.');
-
-    });
-
-function formatUptime(uptime) {
-    var unit = 'second';
-    if (uptime > 60) {
-        uptime = uptime / 60;
-        unit = 'minute';
-    }
-    if (uptime > 60) {
-        uptime = uptime / 60;
-        unit = 'hour';
-    }
-    if (uptime != 1) {
-        unit = unit + 's';
-    }
-
-    uptime = uptime + ' ' + unit;
-    return uptime;
 }
