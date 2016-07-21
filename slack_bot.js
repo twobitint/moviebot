@@ -51,9 +51,11 @@ moviedb('/configuration', {}, function (res) {
     configuration = res;
 });
 
-var controller = Botkit.slackbot({
-    debug: process.env.DEBUG
-});
+var options = {};
+if (process.env.DEBUG === 'true') {
+    options.debug = true;
+}
+var controller = Botkit.slackbot(options);
 
 var bot = controller.spawn({
     token: process.env.SLACK_BOT_WEBHOOK
@@ -65,7 +67,6 @@ controller.setupWebserver(process.env.SERVER_PORT, function (err, webserver) {
 });
 
 controller.on('slash_command', function (bot, message) {
-    console.log(message);
     switch (message.command) {
         case '/movie':
             movieCommand(bot, message);
@@ -101,7 +102,6 @@ function tvCommand(bot, message) {
 function actorCommand(bot, message) {
     if (message.token == process.env.SLACK_ACTOR_CMD_TOKEN) {
         moviedb('/search/person', {query: message.text}, function (res) {
-            console.log(res);
             if (res.results.length != 0) {
                 replyActor(bot, message, res.results[0]);
             } else {
@@ -176,7 +176,7 @@ function replyActor(bot, message, actor) {
                             title: 'Known For',
                             value: actor.known_for.map(function (cur) {
                                 var year = moment(cur.release_date).format('YYYY');
-                                return cur.original_title + ' (' + year + ')  _' + cur.vote_average + '/10_';
+                                return cur.original_title + ' (' + year + ')';
                             }).join('\n'),
                             short: false
                         }
@@ -220,11 +220,6 @@ function replyMovie(bot, message, movie) {
                                 value: credits.cast.slice(0, 4).map(function (cur) {
                                     return cur.name;
                                 }).join(', '),
-                                short: true
-                            },
-                            {
-                                title: 'TMDB Rating',
-                                value: info.vote_average + '/10 (' + info.vote_count + ')',
                                 short: true
                             }
                         ]
@@ -273,8 +268,10 @@ function replyTV(bot, message, tv) {
                                 short: true
                             },
                             {
-                                title: 'TMDB Rating',
-                                value: info.vote_average + '/10 (' + info.vote_count + ')',
+                                title: 'Networks',
+                                value: info.networks.map(function (cur) {
+                                    return cur.name;
+                                }).join(', '),
                                 short: true
                             }
                         ]
